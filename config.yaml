@@ -1,0 +1,115 @@
+app:
+  name: "ДОПРОС MVP 2.0"
+  version: "2.0.0"
+  language: "ru"
+  debug: false
+
+processing:
+  video:
+    frame_skip: 15  # Каждый N-й кадр
+    min_frames: 10  # Минимум кадров для анализа
+    output_format: "jpg"
+    quality: 95
+    max_resolution: [1920, 1080]
+    
+  audio:
+    sample_rate: 16000
+    channels: 1
+    format: "wav"
+    segment_length: 30  # секунд для анализа эмоций
+    
+  models:
+    yolo:
+      version: "11"
+      models:
+        detection: "yolo11n.pt"
+        face: "yolo11n-face.pt"
+        emotion: "yolo11n-emotion.pt"
+      confidence_threshold: 0.5
+      iou_threshold: 0.45
+      max_detections: 100
+      device: "auto"  # auto, cpu, cuda, mps
+      force_cpu: false
+      
+    deepface:
+      enabled: true
+      backend: "opencv"
+      enforce_detection: false
+      detector_backend: "opencv"
+      model: "Emotion"
+      
+    fer:
+      enabled: true
+      mtcnn: true
+      
+    speech:
+      model: "base"
+      emotions: ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+      
+    whisper:
+      model: "whisper-1"
+      language: "ru"
+      temperature: 0
+      
+    gpt:
+      model: "gpt-4-turbo-preview"
+      max_tokens: 4000
+      temperature: 0.3
+
+storage:
+  base_dir: "storage"
+  videos_dir: "storage/videos"
+  audio_dir: "storage/audio"
+  frames_dir: "storage/frames"
+  faces_dir: "storage/faces"
+  faces_yolo11_dir: "storage/faces_yolo11"
+  results_dir: "storage/results"
+  reports_dir: "storage/reports"
+  cache_dir: "storage/cache"
+  
+  cleanup:
+    enabled: true
+    max_age_days: 7
+    max_size_gb: 50
+
+analysis:
+  emotion_categories:
+    basic: ["злость", "отвращение", "страх", "счастье", "грусть", "удивление", "нейтральность"]
+    specialized: ["спокойствие", "дискомфорт", "напряжение_бровей", "напряжение_глаз", "напряжение_рта"]
+    
+  critical_detection:
+    rapid_change_threshold: 3  # изменений подряд
+    confidence_threshold: 0.7
+    time_window: 5  # секунд
+    
+  report:
+    formats: ["csv", "json", "html", "pdf"]
+    include_graphs: true
+    include_timeline: true
+    include_transitions: true
+    include_statistics: true
+    include_insights: true
+
+api:
+  openai:
+    key: "${OPENAI_API_KEY}"
+    timeout: 60
+    max_retries: 3
+    
+  rate_limits:
+    whisper: 50  # запросов в минуту
+    gpt: 60  # запросов в минуту
+
+performance:
+  max_workers: 4
+  batch_size: 32
+  memory_limit_gb: 8
+  gpu_memory_fraction: 0.8
+  enable_caching: true
+  
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "dopros.log"
+  max_size_mb: 100
+  backup_count: 5
