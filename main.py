@@ -164,9 +164,12 @@ def load_default_config():
 # 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ================================
 
-def create_emotion_timeline(emotions_data):
+def create_emotion_timeline(results_data):
     """Создание интерактивного графика временной шкалы эмоций"""
-    if not emotions_data:
+    video_emotions = results_data.get('data', {}).get('video_emotions', [])
+    speech_emotions = results_data.get('data', {}).get('speech_emotions', [])
+    
+    if not video_emotions and not speech_emotions:
         fig = go.Figure()
         fig.add_annotation(text="Нет данных для отображения", 
                           xref="paper", yref="paper",
@@ -181,33 +184,41 @@ def create_emotion_timeline(emotions_data):
     )
     
     # График эмоций лица
-    if 'video_emotions' in emotions_data:
-        video_data = emotions_data['video_emotions']
+    if video_emotions:
+        timestamps = [e.get('timestamp', 0) for e in video_emotions]
+        confidences = [e.get('confidence', 0) for e in video_emotions]
+        emotions = [e.get('emotion', 'нейтральность') for e in video_emotions]
+        
         fig.add_trace(
             go.Scatter(
-                x=video_data.get('timestamps', []),
-                y=video_data.get('values', []),
+                x=timestamps,
+                y=confidences,
                 mode='lines+markers',
                 name='Эмоции лица',
                 line=dict(color='#FF4444', width=2),
                 marker=dict(size=4),
-                hovertemplate='<b>Время:</b> %{x:.1f}с<br><b>Эмоция:</b> %{y:.2f}<extra></extra>'
+                text=emotions,
+                hovertemplate='<b>Время:</b> %{x:.1f}с<br><b>Эмоция:</b> %{text}<br><b>Уверенность:</b> %{y:.2f}<extra></extra>'
             ),
             row=1, col=1
         )
     
     # График эмоций речи
-    if 'audio_emotions' in emotions_data:
-        audio_data = emotions_data['audio_emotions']
+    if speech_emotions:
+        timestamps = [e.get('timestamp', 0) for e in speech_emotions]
+        confidences = [e.get('confidence', 0) for e in speech_emotions]
+        emotions = [e.get('emotion', 'нейтральность') for e in speech_emotions]
+        
         fig.add_trace(
             go.Scatter(
-                x=audio_data.get('timestamps', []),
-                y=audio_data.get('values', []),
+                x=timestamps,
+                y=confidences,
                 mode='lines+markers',
                 name='Эмоции речи',
                 line=dict(color='#4444FF', width=2),
                 marker=dict(size=4),
-                hovertemplate='<b>Время:</b> %{x:.1f}с<br><b>Эмоция:</b> %{y:.2f}<extra></extra>'
+                text=emotions,
+                hovertemplate='<b>Время:</b> %{x:.1f}с<br><b>Эмоция:</b> %{text}<br><b>Уверенность:</b> %{y:.2f}<extra></extra>'
             ),
             row=2, col=1
         )
@@ -221,26 +232,40 @@ def create_emotion_timeline(emotions_data):
     
     return fig
 
-def create_emotion_heatmap(emotion_matrix):
+def create_emotion_heatmap(results_data, metrics):
     """Создание тепловой карты эмоций"""
-    if not emotion_matrix:
+    video_emotions = results_data.get('data', {}).get('video_emotions', [])
+    speech_emotions = results_data.get('data', {}).get('speech_emotions', [])
+    
+    if not video_emotions and not speech_emotions:
         fig = go.Figure()
         fig.add_annotation(text="Нет данных для тепловой карты", 
                           xref="paper", yref="paper",
                           x=0.5, y=0.5, showarrow=False)
         return fig
     
-    emotions = ['Злость', 'Печаль', 'Нейтральность', 'Радость', 'Удивление']
+    emotion_distribution = metrics.get('emotion_distribution', {})
+    emotions = ['злость', 'грусть', 'нейтральность', 'счастье', 'удивление', 'страх', 'отвращение']
+    
+    # Create matrix: video emotions (row 0) and speech emotions (row 1)
+    video_row = [emotion_distribution.get(emo, 0) for emo in emotions]
+    speech_row = [0] * len(emotions)  # No speech data yet
+    
+    # Normalize to percentages
+    total_frames = metrics.get('total_frames', 1)
+    video_row = [x/total_frames * 100 for x in video_row]
+    
+    matrix = [video_row, speech_row]
     
     fig = go.Figure(data=go.Heatmap(
-        z=emotion_matrix,
-        x=emotions,
+        z=matrix,
+        x=[e.title() for e in emotions],
         y=['Лицо', 'Речь'],
         colorscale='RdYlBu_r',
-        text=emotion_matrix,
-        texttemplate="%{text:.2f}",
-        textfont={"size": 12},
-        colorbar=dict(title="Интенсивность")
+        text=matrix,
+        texttemplate="%{text:.1f}%",
+        textfont={"size": 10},
+        colorbar=dict(title="Процент времени")
     ))
     
     fig.update_layout(
@@ -815,6 +840,54 @@ if hasattr(st.session_state, 'start_analysis') and st.session_state.start_analys
 # TAB 2: АНАЛИЗ ЭМОЦИЙ  
 # ================================
 
+def calculate_emotion_metrics(results):
+    """Calculate emotion metrics from pipeline results"""
+    video_emotions = results.get('data', {}).get('video_emotions', [])
+    
+    if not video_emotions:
+        return {
+            'dominant_emotion': 'Не определено',
+            'emotion_changes': 0,
+            'stress_level': 0.0,
+            'stability': 0.0,
+            'emotion_distribution': {}
+        }
+    
+    # Count emotions
+    emotion_counts = {}
+    prev_emotion = None
+    transitions = 0
+    
+    for emotion_data in video_emotions:
+        emotion = emotion_data.get('emotion', 'нейтральность')
+        emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+        
+        if prev_emotion and prev_emotion != emotion:
+            transitions += 1
+        prev_emotion = emotion
+    
+    # Calculate dominant emotion
+    dominant_emotion = max(emotion_counts.keys(), key=emotion_counts.get) if emotion_counts else 'Не определено'
+    
+    # Calculate stability (higher = more stable)
+    total_frames = len(video_emotions)
+    dominant_count = emotion_counts.get(dominant_emotion, 0)
+    stability = dominant_count / total_frames if total_frames > 0 else 0
+    
+    # Calculate stress level based on negative emotions
+    negative_emotions = ['злость', 'страх', 'грусть', 'отвращение']
+    negative_count = sum(emotion_counts.get(emo, 0) for emo in negative_emotions)
+    stress_level = negative_count / total_frames if total_frames > 0 else 0
+    
+    return {
+        'dominant_emotion': dominant_emotion,
+        'emotion_changes': transitions,
+        'stress_level': stress_level,
+        'stability': stability,
+        'emotion_distribution': emotion_counts,
+        'total_frames': total_frames
+    }
+
 with tab2:
     st.header("📊 Анализ эмоций")
     
@@ -822,6 +895,9 @@ with tab2:
         st.info("ℹ️ Запустите анализ видео на вкладке 'Загрузка' для просмотра результатов")
     else:
         results = st.session_state.analysis_results
+        
+        # Calculate metrics from real data
+        metrics = calculate_emotion_metrics(results)
         
         # Основные метрики
         st.subheader("📈 Основные показатели")
@@ -832,7 +908,7 @@ with tab2:
             st.markdown(f"""
             <div class="metric-container">
                 <h3>🎭 Доминирующая эмоция</h3>
-                <h2>{results.get('dominant_emotion', 'Не определено')}</h2>
+                <h2>{metrics['dominant_emotion']}</h2>
             </div>
             """, unsafe_allow_html=True)
         
@@ -840,12 +916,12 @@ with tab2:
             st.markdown(f"""
             <div class="metric-container">
                 <h3>🔄 Изменения эмоций</h3>
-                <h2>{results.get('emotion_changes', 0)}</h2>
+                <h2>{metrics['emotion_changes']}</h2>
             </div>
             """, unsafe_allow_html=True)
         
         with col3:
-            stress_level = results.get('stress_level', 0)
+            stress_level = metrics['stress_level']
             color = '#FF4444' if stress_level > 0.7 else '#FFA500' if stress_level > 0.4 else '#00AA00'
             st.markdown(f"""
             <div class="metric-container">
@@ -855,7 +931,7 @@ with tab2:
             """, unsafe_allow_html=True)
         
         with col4:
-            stability = results.get('stability', 0)
+            stability = metrics['stability']
             st.markdown(f"""
             <div class="metric-container">
                 <h3>⚖️ Стабильность</h3>
@@ -866,7 +942,7 @@ with tab2:
         # Временная шкала эмоций
         st.subheader("📈 Временная шкала эмоций")
         
-        fig = create_emotion_timeline(results.get('emotions', {}))
+        fig = create_emotion_timeline(results)
         st.plotly_chart(fig, use_container_width=True)
         
         # Тепловая карта эмоций
@@ -875,7 +951,7 @@ with tab2:
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            heatmap_fig = create_emotion_heatmap(results.get('emotion_matrix', []))
+            heatmap_fig = create_emotion_heatmap(results, metrics)
             st.plotly_chart(heatmap_fig, use_container_width=True)
         
         with col2:
