@@ -1,0 +1,61 @@
+{
+  "session_id": "e786c87c",
+  "created_at": "2025-08-13T09:47:58.593694",
+  "video_info": {
+    "video_path": "temp_uploads/20250813_094738_input_video.mp4",
+    "file_size": 73755184,
+    "duration": 608.0470141042313,
+    "fps": 29.991101965799622,
+    "frame_count": 18236,
+    "resolution": [
+      432,
+      240
+    ],
+    "valid": true
+  },
+  "temp_dir": "temp/e786c87c",
+  "output_dir": "output/e786c87c",
+  "config": {
+    "processing": {
+      "frame_skip": 15,
+      "models": {
+        "emotion": {
+          "use_deepface": true,
+          "use_fer": true,
+          "use_yolo": true,
+          "use_speech_analysis": true,
+          "confidence_threshold": 0.5
+        }
+      },
+      "device": {
+        "option": "авто",
+        "force_cpu": false
+      }
+    },
+    "analysis": {
+      "time_resolution": 0.1,
+      "emotion_change_threshold": 0.7,
+      "mismatch_threshold": 0.5,
+      "speech_pause_threshold": 2.0
+    },
+    "storage": {
+      "frames_dir": "storage/frames",
+      "audio_dir": "storage/audio",
+      "faces_dir": "storage/faces",
+      "reports_dir": "storage/reports",
+      "analysis_dir": "storage/analysis"
+    },
+    "openai": {
+      "enabled": true,
+      "model": "gpt-4"
+    },
+    "export": {
+      "formats": [
+        "CSV",
+        "HTML"
+      ],
+      "include_charts": true,
+      "include_raw_data": false
+    }
+  }
+}

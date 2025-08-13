@@ -12,7 +12,7 @@ import hashlib
 import zipfile
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Callable, Tuple
+from typing import Dict, Any, List, Optional, Callable, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 import uuid
@@ -50,9 +50,14 @@ class MasterPipeline:
     Управляет полным пайплайном от входного видео до итоговых отчетов
     """
     
-    def __init__(self, config_path: str = 'config.yaml'):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: Union[str, Dict[str, Any]] = 'config.yaml'):
         self.logger = logging.getLogger(__name__)
+        
+        # Если передан словарь конфигурации, используем его напрямую
+        if isinstance(config_path, dict):
+            self.config = config_path
+        else:
+            self.config = self._load_config(config_path)
         
         # Threading lock for thread-safe operations
         self._lock = Lock()

@@ -772,29 +772,44 @@ if hasattr(st.session_state, 'start_analysis') and st.session_state.start_analys
             st.success("🎉 Анализ завершен! Перейдите к другим вкладкам для просмотра результатов.")
             
         else:
-            # Реальный анализ (в данном примере тоже симуляция)
+            # Реальный анализ загруженного видео
             try:
                 status_text.text("🔄 Инициализация пайплайна...")
                 
-                # Здесь был бы реальный вызов:
-                # pipeline = MasterPipeline(st.session_state.config)
-                # results = pipeline.process_video(
-                #     st.session_state.uploaded_video_path,
-                #     progress_callback=lambda p, s, d: update_progress(p, s, d)
-                # )
+                # Инициализируем пайплайн
+                pipeline = MasterPipeline(st.session_state.config)
                 
-                # Пока используем демо результаты
-                progress_bar.progress(1.0)
-                status_text.text("✅ Анализ завершен!")
-                st.session_state.analysis_results = generate_demo_results()
+                def progress_callback(progress, stage, details):
+                    """Callback для обновления прогресса"""
+                    progress_bar.progress(progress)
+                    status_text.text(f"🔄 {stage}: {details}")
+                
+                status_text.text("🎬 Обработка видео...")
+                
+                # Запускаем реальный анализ
+                results = pipeline.process_video(
+                    st.session_state.uploaded_video_path,
+                    progress_callback=progress_callback
+                )
+                
+                # Сохраняем результаты
+                st.session_state.analysis_results = results
                 st.session_state.processing_complete = True
                 
+                progress_bar.progress(1.0)
+                status_text.text("✅ Анализ завершен!")
                 st.success("🎉 Анализ завершен успешно!")
                 
             except Exception as e:
                 st.error(f"❌ Ошибка при анализе: {e}")
+                st.exception(e)  # Показываем полную ошибку для отладки
                 progress_bar.progress(0)
                 status_text.text("❌ Анализ прерван из-за ошибки")
+                
+                # В случае ошибки, попробуем показать демо данные
+                st.warning("⚠️ Используем демонстрационные данные из-за ошибки обработки")
+                st.session_state.analysis_results = generate_demo_results()
+                st.session_state.processing_complete = True
 
 # ================================
 # TAB 2: АНАЛИЗ ЭМОЦИЙ  
