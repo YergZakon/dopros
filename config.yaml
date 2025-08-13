@@ -23,8 +23,8 @@ processing:
       version: "11"
       models:
         detection: "yolo11n.pt"
-        face: "yolo11n-face.pt"
-        emotion: "yolo11n-emotion.pt"
+        face: "yolo11n.pt"
+        emotion: "yolo11n.pt"
       confidence_threshold: 0.5
       iou_threshold: 0.45
       max_detections: 100

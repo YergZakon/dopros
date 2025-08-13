@@ -53,6 +53,9 @@ class MasterPipeline:
     def __init__(self, config_path: Union[str, Dict[str, Any]] = 'config.yaml'):
         self.logger = logging.getLogger(__name__)
         
+        # Configure TensorFlow globally for RTX 5090 compatibility
+        self._configure_tensorflow()
+        
         # Если передан словарь конфигурации, используем его напрямую
         if isinstance(config_path, dict):
             self.config = config_path
@@ -190,6 +193,39 @@ class MasterPipeline:
                 }
             }
         }
+    
+    def _configure_tensorflow(self):
+        """Configure TensorFlow for RTX 5090 compatibility"""
+        try:
+            import tensorflow as tf
+            
+            # Configure GPU memory growth
+            gpus = tf.config.experimental.list_physical_devices('GPU')
+            if gpus:
+                try:
+                    for gpu in gpus:
+                        tf.config.experimental.set_memory_growth(gpu, True)
+                    self.logger.info(f"TensorFlow configured for {len(gpus)} GPU(s) with memory growth")
+                except RuntimeError as e:
+                    self.logger.warning(f"GPU configuration failed: {e}")
+            
+            # Set mixed precision for RTX 5090
+            try:
+                policy = tf.keras.mixed_precision.Policy('mixed_float16')
+                tf.keras.mixed_precision.set_global_policy(policy)
+                self.logger.info("Mixed precision enabled for better RTX 5090 performance")
+            except Exception as e:
+                self.logger.warning(f"Mixed precision setup failed: {e}")
+            
+            # Optimize for compute capability 12.0
+            import os
+            os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+            os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
+            
+        except ImportError:
+            self.logger.info("TensorFlow not available, skipping GPU configuration")
+        except Exception as e:
+            self.logger.warning(f"TensorFlow configuration failed: {e}")
     
     def _init_components(self):
         """Initialize processing components lazily"""

@@ -658,6 +658,20 @@ class DeepFaceAnalyzer:
         self.config = config
         self.logger = logging.getLogger(__name__)
         
+        # Force CPU-only mode to avoid RTX 5090 CUDA compatibility issues
+        import os
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+        os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'false'
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        
+        try:
+            import tensorflow as tf
+            tf.config.set_visible_devices([], 'GPU')
+            self.logger.info("DeepFace forced to CPU-only mode to prevent CUDA errors")
+        except Exception as e:
+            self.logger.warning(f"TensorFlow configuration failed: {e}")
+            # Continue anyway - CPU fallback will work
+        
         # DeepFace settings
         deepface_config = config.get('processing', {}).get('models', {}).get('deepface', {})
         self.backend = deepface_config.get('backend', 'opencv')
