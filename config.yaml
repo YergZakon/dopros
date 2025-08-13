@@ -32,7 +32,7 @@ processing:
       force_cpu: false
       
     deepface:
-      enabled: true
+      enabled: false
       backend: "opencv"
       enforce_detection: false
       detector_backend: "opencv"
@@ -40,7 +40,7 @@ processing:
       
     fer:
       enabled: true
-      mtcnn: true
+      mtcnn: false
       
     speech:
       model: "base"
@@ -78,9 +78,14 @@ analysis:
     specialized: ["спокойствие", "дискомфорт", "напряжение_бровей", "напряжение_глаз", "напряжение_рта"]
     
   critical_detection:
-    rapid_change_threshold: 3  # изменений подряд
-    confidence_threshold: 0.7
+    rapid_change_threshold: 2  # изменений подряд
+    confidence_threshold: 0.3
     time_window: 5  # секунд
+    
+  emotion_change_threshold: 0.3
+  mismatch_threshold: 0.3
+  speech_pause_threshold: 2.0
+  time_resolution: 0.1
     
   report:
     formats: ["csv", "json", "html", "pdf"]

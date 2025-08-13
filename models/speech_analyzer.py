@@ -401,3 +401,15 @@ class AdvancedSpeechEmotionAnalyzer:
                 'error': str(e),
                 'audio_path': audio_path
             }
+    
+    def analyze_audio_file(self, audio_path: str) -> Dict[str, Any]:
+        """
+        Alias for analyze_speech method for compatibility
+        
+        Args:
+            audio_path: Path to audio file
+            
+        Returns:
+            Complete analysis results
+        """
+        return self.analyze_speech(audio_path)

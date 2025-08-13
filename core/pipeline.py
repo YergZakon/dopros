@@ -1342,6 +1342,79 @@ class MasterPipeline:
             "_fallback_used": True
         }
     
+    # ====== MISSING METHODS ======
+    
+    def _detect_emotion_changes(self, timeline: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Detect significant emotion changes in timeline"""
+        changes = []
+        
+        if len(timeline) < 2:
+            return changes
+        
+        try:
+            for i in range(1, len(timeline)):
+                prev_emotion = timeline[i-1].get('emotion', 'neutral')
+                curr_emotion = timeline[i].get('emotion', 'neutral')
+                
+                if prev_emotion != curr_emotion:
+                    change = {
+                        'timestamp': timeline[i].get('timestamp', 0),
+                        'from_emotion': prev_emotion,
+                        'to_emotion': curr_emotion,
+                        'from_confidence': timeline[i-1].get('confidence', 0),
+                        'to_confidence': timeline[i].get('confidence', 0),
+                        'frame_number': timeline[i].get('frame_number', 0)
+                    }
+                    changes.append(change)
+                    
+        except Exception as e:
+            self.logger.warning(f"Error detecting emotion changes: {e}")
+            
+        return changes
+    
+    def _create_fallback_report(self, results: Dict[str, Any], session_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a basic fallback report when main report generation fails"""
+        from utils.json_utils import save_json_safe
+        
+        try:
+            session_id = session_data.get('session_id', 'unknown')
+            output_dir = Path(session_data.get('output_dir', 'output'))
+            
+            # Создаем упрощенный отчет
+            basic_report = {
+                'session_id': session_id,
+                'generated_at': datetime.now().isoformat(),
+                'status': 'completed_with_fallback',
+                'summary': {
+                    'video_processed': bool(results.get('extract_frames', {}).get('extracted_frames')),
+                    'emotions_analyzed': bool(results.get('analyze_emotions', {}).get('emotion_results')),
+                    'total_frames': len(results.get('extract_frames', {}).get('extracted_frames', [])),
+                    'total_emotions': len(results.get('analyze_emotions', {}).get('emotion_results', []))
+                },
+                'data': {
+                    'video_emotions': results.get('analyze_emotions', {}).get('emotion_results', []),
+                    'errors': results.get('errors', []),
+                    'warnings': results.get('warnings', [])
+                }
+            }
+            
+            # Сохраняем базовый отчет
+            report_path = output_dir / f"{session_id}_basic_report.json"
+            
+            if save_json_safe(basic_report, report_path):
+                self.logger.info(f"Fallback report saved: {report_path}")
+                return {
+                    'status': 'fallback_created',
+                    'report_path': str(report_path),
+                    'formats': {'json': str(report_path)}
+                }
+            else:
+                return {'status': 'fallback_failed', 'error': 'Could not save fallback report'}
+                
+        except Exception as e:
+            self.logger.error(f"Fallback report creation failed: {e}")
+            return {'status': 'fallback_failed', 'error': str(e)}
+    
     # ====== FINALIZATION METHODS ======
     
     def _finalize_results(self, results: Dict[str, Any], session_id: str) -> Dict[str, Any]:
