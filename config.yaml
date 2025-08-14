@@ -48,6 +48,7 @@ processing:
       
     whisper:
       model: "whisper-1"
+      model_size: "base"  # base, small, medium, large, large-v2, large-v3
       language: "ru"
       temperature: 0
       

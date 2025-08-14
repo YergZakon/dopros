@@ -790,18 +790,23 @@ class MasterPipeline:
         
         try:
             # Transcribe with timestamps
-            transcription_result = self.audio_processor.transcribe_with_timestamps(
+            segments = self.audio_processor.transcribe_with_timestamps(
                 audio_data['audio_path']
             )
             
+            # Create structured result
+            transcription_result = {
+                'segments': segments,
+                'total_segments': len(segments),
+                'total_duration': segments[-1].end if segments else 0.0
+            }
+            
             # Enhance transcript if OpenAI client available
-            if self.openai_client and transcription_result.get('segments'):
-                enhanced_segments = self.audio_processor.enhance_transcript(
-                    transcription_result['segments']
-                )
+            if self.openai_client and segments:
+                enhanced_segments = self.audio_processor.enhance_transcript(segments)
                 transcription_result['enhanced_segments'] = enhanced_segments
             
-            self.logger.info(f"Transcription completed: {len(transcription_result.get('segments', []))} segments")
+            self.logger.info(f"Transcription completed: {len(segments)} segments")
             
             return transcription_result
             
@@ -837,6 +842,54 @@ class MasterPipeline:
         except Exception as e:
             self.logger.error(f"Speech analysis failed: {e}")
             return self.fallback_methods['analyze_speech'](results)
+    
+    def _align_speech_with_transcript(self, speech_results: Dict[str, Any], transcript_segments: List) -> List[Dict[str, Any]]:
+        """Align speech emotion results with transcript segments"""
+        aligned_results = []
+        
+        if not transcript_segments or not speech_results.get('segments'):
+            return aligned_results
+        
+        # Simple alignment based on timestamps
+        for transcript_segment in transcript_segments:
+            # Handle both TranscriptionSegment objects and dictionaries
+            if hasattr(transcript_segment, 'start'):
+                segment_start = transcript_segment.start
+                segment_end = transcript_segment.end
+                segment_text = transcript_segment.text
+            else:
+                segment_start = transcript_segment.get('start', 0.0)
+                segment_end = transcript_segment.get('end', segment_start + 1.0)
+                segment_text = transcript_segment.get('text', '')
+            
+            # Find overlapping speech emotions
+            overlapping_emotions = []
+            for speech_segment in speech_results.get('segments', []):
+                speech_start = speech_segment.get('start_time', 0.0)
+                speech_end = speech_segment.get('end_time', speech_start + 1.0)
+                
+                # Check for overlap
+                if (speech_start < segment_end) and (speech_end > segment_start):
+                    overlapping_emotions.append({
+                        'emotion': speech_segment.get('emotion', 'нейтральность'),
+                        'confidence': speech_segment.get('confidence', 0.0),
+                        'start_time': speech_start,
+                        'end_time': speech_end
+                    })
+            
+            # Create aligned segment
+            aligned_segment = {
+                'text': segment_text,
+                'start': segment_start,
+                'end': segment_end,
+                'emotions': overlapping_emotions,
+                'dominant_emotion': overlapping_emotions[0].get('emotion', 'нейтральность') if overlapping_emotions else 'нейтральность'
+            }
+            
+            aligned_results.append(aligned_segment)
+        
+        self.logger.info(f"Aligned {len(aligned_results)} transcript segments with speech emotions")
+        return aligned_results
     
     def _synchronize_data(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """Synchronize video emotions, speech emotions, and transcript"""
@@ -877,8 +930,14 @@ class MasterPipeline:
             
             # Add transcript events
             for segment in synchronized_data['transcript_segments']:
+                # Handle both TranscriptionSegment objects and dictionaries
+                if hasattr(segment, 'start'):
+                    timestamp = segment.start
+                else:
+                    timestamp = segment.get('start', 0)
+                
                 all_events.append({
-                    'timestamp': segment.get('start', 0),
+                    'timestamp': timestamp,
                     'type': 'transcript',
                     'data': segment
                 })
@@ -903,6 +962,101 @@ class MasterPipeline:
         except Exception as e:
             self.logger.error(f"Data synchronization failed: {e}")
             raise PipelineError(f"Critical synchronization failed: {e}")
+    
+    def _calculate_emotion_correlations(self, video_emotions: List[Dict], speech_emotions: List[Dict]) -> Dict[str, Any]:
+        """Calculate correlations between video and speech emotions"""
+        try:
+            correlations = {
+                'overall_correlation': 0.0,
+                'emotion_matches': 0,
+                'emotion_conflicts': 0,
+                'confidence_correlation': 0.0,
+                'temporal_alignment': 0.0
+            }
+            
+            if not video_emotions or not speech_emotions:
+                return correlations
+            
+            # Count emotion matches and conflicts
+            matches = 0
+            conflicts = 0
+            total_comparisons = 0
+            
+            for video_emotion in video_emotions:
+                video_timestamp = video_emotion.get('timestamp', 0)
+                video_emotion_type = video_emotion.get('emotion', 'нейтральность')
+                
+                # Find nearest speech emotion in time
+                nearest_speech = None
+                min_time_diff = float('inf')
+                
+                for speech_emotion in speech_emotions:
+                    speech_start = speech_emotion.get('start_time', 0)
+                    speech_end = speech_emotion.get('end_time', speech_start + 1)
+                    speech_mid = (speech_start + speech_end) / 2
+                    
+                    time_diff = abs(video_timestamp - speech_mid)
+                    if time_diff < min_time_diff:
+                        min_time_diff = time_diff
+                        nearest_speech = speech_emotion
+                
+                if nearest_speech and min_time_diff < 5.0:  # Within 5 seconds
+                    speech_emotion_type = nearest_speech.get('emotion', 'нейтральность')
+                    
+                    # Check for emotional alignment
+                    if video_emotion_type == speech_emotion_type:
+                        matches += 1
+                    elif self._are_emotions_compatible(video_emotion_type, speech_emotion_type):
+                        matches += 0.5  # Partial match for compatible emotions
+                    else:
+                        conflicts += 1
+                    
+                    total_comparisons += 1
+            
+            # Calculate correlation metrics
+            if total_comparisons > 0:
+                correlations['emotion_matches'] = matches
+                correlations['emotion_conflicts'] = conflicts
+                correlations['overall_correlation'] = matches / total_comparisons
+                correlations['temporal_alignment'] = 1.0 - (conflicts / total_comparisons)
+            
+            # Calculate confidence correlation (simplified)
+            video_confidences = [e.get('confidence', 0.5) for e in video_emotions]
+            speech_confidences = [e.get('confidence', 0.5) for e in speech_emotions]
+            
+            if video_confidences and speech_confidences:
+                avg_video_conf = sum(video_confidences) / len(video_confidences)
+                avg_speech_conf = sum(speech_confidences) / len(speech_confidences)
+                correlations['confidence_correlation'] = min(avg_video_conf, avg_speech_conf) / max(avg_video_conf, avg_speech_conf)
+            
+            self.logger.info(f"Emotion correlations calculated: {correlations['overall_correlation']:.2f} correlation")
+            return correlations
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to calculate emotion correlations: {e}")
+            return {
+                'overall_correlation': 0.0,
+                'emotion_matches': 0,
+                'emotion_conflicts': 0,
+                'confidence_correlation': 0.0,
+                'temporal_alignment': 0.0
+            }
+    
+    def _are_emotions_compatible(self, emotion1: str, emotion2: str) -> bool:
+        """Check if two emotions are compatible/similar"""
+        # Define emotion compatibility groups
+        compatible_groups = [
+            ['счастье', 'удивление', 'спокойствие'],
+            ['грусть', 'страх', 'фрустрация'],
+            ['злость', 'отвращение', 'презрение'],
+            ['нейтральность', 'спокойствие']
+        ]
+        
+        for group in compatible_groups:
+            if emotion1 in group and emotion2 in group:
+                return True
+        
+        return False
     
     def _detect_critical_moments(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """Detect critical moments based on multimodal analysis"""
@@ -967,12 +1121,16 @@ class MasterPipeline:
                 return self.fallback_methods['generate_insights'](results)
             
             # Prepare data for analysis
+            from utils.json_utils import clean_for_json
             analysis_data = {
                 'video_emotions': synchronized_data['video_emotions'],
                 'speech_emotions': synchronized_data['speech_emotions'],
                 'transcript': synchronized_data['transcript_segments'],
                 'critical_moments': critical_moments['critical_moments']
             }
+            
+            # Clean data to remove numpy types before OpenAI processing
+            analysis_data = clean_for_json(analysis_data)
             
             # Get structured analysis from OpenAI
             insights = self.openai_client.get_structured_analysis(
@@ -1013,6 +1171,8 @@ class MasterPipeline:
         self.logger.info("Creating comprehensive reports")
         
         try:
+            from pathlib import Path
+            
             # Prepare data for report generation
             report_data = {
                 'metadata': {
@@ -1039,7 +1199,7 @@ class MasterPipeline:
             final_report_paths = {}
             
             for format_name, report_path in report_results.get('formats', {}).items():
-                if report_path and os.path.exists(report_path):
+                if report_path and isinstance(report_path, (str, Path)) and os.path.exists(report_path):
                     # Copy to session output directory
                     report_filename = f"{results['session_id']}_{format_name}_report"
                     if format_name == 'html':
@@ -1060,7 +1220,7 @@ class MasterPipeline:
             csv_final_paths = {}
             
             for csv_type, csv_path in csv_reports.items():
-                if csv_path and os.path.exists(csv_path):
+                if csv_path and isinstance(csv_path, (str, Path)) and os.path.exists(csv_path):
                     csv_filename = f"{results['session_id']}_{csv_type}.csv"
                     final_csv_path = session_output_dir / csv_filename
                     shutil.copy2(csv_path, final_csv_path)
@@ -1372,6 +1532,160 @@ class MasterPipeline:
             
         return changes
     
+    def _detect_intense_emotions(self, video_emotions: List[Dict], speech_emotions: List[Dict]) -> List[Dict[str, Any]]:
+        """Detect high-intensity emotional moments"""
+        intense_moments = []
+        
+        try:
+            # Check video emotions for high intensity
+            for emotion in video_emotions:
+                confidence = emotion.get('confidence', 0)
+                emotion_type = emotion.get('emotion', 'нейтральность')
+                
+                # Define intense emotions and thresholds
+                intense_emotion_types = ['злость', 'страх', 'отвращение', 'презрение']
+                
+                if emotion_type in intense_emotion_types and confidence > 0.7:
+                    intense_moments.append({
+                        'timestamp': emotion.get('timestamp', 0),
+                        'type': 'intense_video_emotion',
+                        'emotion': emotion_type,
+                        'confidence': confidence,
+                        'source': 'video'
+                    })
+            
+            # Check speech emotions for high intensity
+            for speech in speech_emotions:
+                confidence = speech.get('confidence', 0)
+                emotion_type = speech.get('emotion', 'нейтральность')
+                
+                if emotion_type in ['злость', 'фрустрация', 'страх'] and confidence > 0.6:
+                    intense_moments.append({
+                        'timestamp': speech.get('start_time', 0),
+                        'type': 'intense_speech_emotion',
+                        'emotion': emotion_type,
+                        'confidence': confidence,
+                        'source': 'speech'
+                    })
+                    
+        except Exception as e:
+            self.logger.warning(f"Error detecting intense emotions: {e}")
+            
+        return intense_moments
+    
+    def _detect_modality_contradictions(self, video_emotions: List[Dict], speech_emotions: List[Dict]) -> List[Dict[str, Any]]:
+        """Detect contradictions between video and speech emotions"""
+        contradictions = []
+        
+        try:
+            # Find temporal overlaps and check for emotional contradictions
+            for video_emotion in video_emotions:
+                video_timestamp = video_emotion.get('timestamp', 0)
+                video_emotion_type = video_emotion.get('emotion', 'нейтральность')
+                
+                # Find overlapping speech emotions
+                for speech_emotion in speech_emotions:
+                    speech_start = speech_emotion.get('start_time', 0)
+                    speech_end = speech_emotion.get('end_time', speech_start + 1)
+                    speech_emotion_type = speech_emotion.get('emotion', 'нейтральность')
+                    
+                    # Check if they overlap in time
+                    if speech_start <= video_timestamp <= speech_end:
+                        # Check for emotional contradiction
+                        if self._are_emotions_contradictory(video_emotion_type, speech_emotion_type):
+                            contradictions.append({
+                                'timestamp': video_timestamp,
+                                'type': 'modality_contradiction',
+                                'video_emotion': video_emotion_type,
+                                'speech_emotion': speech_emotion_type,
+                                'video_confidence': video_emotion.get('confidence', 0),
+                                'speech_confidence': speech_emotion.get('confidence', 0)
+                            })
+                            
+        except Exception as e:
+            self.logger.warning(f"Error detecting modality contradictions: {e}")
+            
+        return contradictions
+    
+    def _detect_speech_anomalies(self, speech_emotions: List[Dict]) -> List[Dict[str, Any]]:
+        """Detect speech anomalies like long silences or unusual patterns"""
+        anomalies = []
+        
+        try:
+            if len(speech_emotions) < 2:
+                return anomalies
+                
+            # Detect long gaps between speech segments
+            for i in range(1, len(speech_emotions)):
+                prev_end = speech_emotions[i-1].get('end_time', 0)
+                curr_start = speech_emotions[i].get('start_time', 0)
+                gap_duration = curr_start - prev_end
+                
+                # Flag gaps longer than 10 seconds as anomalies
+                if gap_duration > 10.0:
+                    anomalies.append({
+                        'timestamp': prev_end,
+                        'type': 'long_silence',
+                        'duration': gap_duration,
+                        'description': f'Silence for {gap_duration:.1f} seconds'
+                    })
+            
+            # Detect extremely low confidence segments
+            for speech in speech_emotions:
+                confidence = speech.get('confidence', 0)
+                if confidence < 0.2:
+                    anomalies.append({
+                        'timestamp': speech.get('start_time', 0),
+                        'type': 'low_confidence_speech',
+                        'confidence': confidence,
+                        'emotion': speech.get('emotion', 'unknown'),
+                        'description': f'Very low confidence emotion detection'
+                    })
+                    
+        except Exception as e:
+            self.logger.warning(f"Error detecting speech anomalies: {e}")
+            
+        return anomalies
+    
+    def _deduplicate_critical_moments(self, critical_moments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove duplicate critical moments and sort by timestamp"""
+        try:
+            # Sort by timestamp
+            sorted_moments = sorted(critical_moments, key=lambda x: x.get('timestamp', 0))
+            
+            # Remove duplicates based on timestamp and type
+            unique_moments = []
+            seen = set()
+            
+            for moment in sorted_moments:
+                key = (moment.get('timestamp', 0), moment.get('type', ''))
+                if key not in seen:
+                    seen.add(key)
+                    unique_moments.append(moment)
+            
+            return unique_moments
+            
+        except Exception as e:
+            self.logger.warning(f"Error deduplicating critical moments: {e}")
+            return critical_moments
+    
+    def _are_emotions_contradictory(self, emotion1: str, emotion2: str) -> bool:
+        """Check if two emotions are contradictory"""
+        # Define contradictory emotion pairs
+        contradictory_pairs = [
+            ('счастье', 'грусть'),
+            ('счастье', 'злость'),
+            ('спокойствие', 'злость'),
+            ('спокойствие', 'страх'),
+            ('удивление', 'спокойствие')
+        ]
+        
+        for pair in contradictory_pairs:
+            if (emotion1 in pair and emotion2 in pair and emotion1 != emotion2):
+                return True
+                
+        return False
+    
     def _create_fallback_report(self, results: Dict[str, Any], session_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a basic fallback report when main report generation fails"""
         from utils.json_utils import save_json_safe
@@ -1449,6 +1763,72 @@ class MasterPipeline:
         total_stages = len(self.stages)
         failed_stages = len([v for v in results.values() if isinstance(v, dict) and v.get("failed")])
         return (total_stages - failed_stages) / total_stages if total_stages > 0 else 0.0
+    
+    def _extract_frames_parallel(self, video_path: str, session_id: str) -> Dict[str, Any]:
+        """Extract frames for parallel processing"""
+        try:
+            # Use the existing _extract_frames method with dummy results structure
+            dummy_results = {'video_path': video_path, 'session_id': session_id}
+            return self._extract_frames(dummy_results)
+        except Exception as e:
+            self.logger.error(f"Parallel frame extraction failed: {e}")
+            return {"error": str(e)}
+    
+    def _detect_faces_parallel(self, frames_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Detect faces for parallel processing"""
+        try:
+            # Use the existing _detect_faces method with frames data
+            dummy_results = {'extract_frames': frames_data}
+            return self._detect_faces(dummy_results)
+        except Exception as e:
+            self.logger.error(f"Parallel face detection failed: {e}")
+            return {"error": str(e)}
+    
+    def _analyze_emotions_parallel(self, frames_data: Dict[str, Any], faces_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze emotions for parallel processing"""
+        try:
+            # Use the existing _analyze_emotions method
+            dummy_results = {
+                'extract_frames': frames_data,
+                'detect_faces': faces_data
+            }
+            return self._analyze_emotions(dummy_results)
+        except Exception as e:
+            self.logger.error(f"Parallel emotion analysis failed: {e}")
+            return {"error": str(e)}
+    
+    def _extract_audio_parallel(self, video_path: str, session_id: str) -> Dict[str, Any]:
+        """Extract audio for parallel processing"""
+        try:
+            # Use the existing _extract_audio method
+            dummy_results = {'video_path': video_path, 'session_id': session_id}
+            return self._extract_audio(dummy_results)
+        except Exception as e:
+            self.logger.error(f"Parallel audio extraction failed: {e}")
+            return {"error": str(e)}
+    
+    def _transcribe_audio_parallel(self, audio_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Transcribe audio for parallel processing"""
+        try:
+            # Use the existing _transcribe_audio method
+            dummy_results = {'extract_audio': audio_data}
+            return self._transcribe_audio(dummy_results)
+        except Exception as e:
+            self.logger.error(f"Parallel audio transcription failed: {e}")
+            return {"error": str(e)}
+    
+    def _analyze_speech_parallel(self, audio_data: Dict[str, Any], transcript_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze speech for parallel processing"""
+        try:
+            # Use the existing _analyze_speech method
+            dummy_results = {
+                'extract_audio': audio_data,
+                'transcribe_audio': transcript_data
+            }
+            return self._analyze_speech(dummy_results)
+        except Exception as e:
+            self.logger.error(f"Parallel speech analysis failed: {e}")
+            return {"error": str(e)}
 
 
 # ====== CONVENIENCE FUNCTIONS ======

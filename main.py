@@ -205,7 +205,7 @@ def create_emotion_timeline(results_data):
     
     # График эмоций речи
     if speech_emotions:
-        timestamps = [e.get('timestamp', 0) for e in speech_emotions]
+        timestamps = [e.get('start_time', e.get('timestamp', 0)) for e in speech_emotions]
         confidences = [e.get('confidence', 0) for e in speech_emotions]
         emotions = [e.get('emotion', 'нейтральность') for e in speech_emotions]
         
@@ -277,43 +277,120 @@ def create_emotion_heatmap(results_data, metrics):
     
     return fig
 
-def create_speech_emotion_plot(speech_data):
+def create_speech_emotion_plot(speech_emotions):
     """Создание графика эмоций в речи"""
-    if not speech_data:
+    if not speech_emotions:
         fig = go.Figure()
         fig.add_annotation(text="Нет речевых данных", 
                           xref="paper", yref="paper",
                           x=0.5, y=0.5, showarrow=False)
         return fig
     
-    fig = go.Figure()
+    # Извлекаем данные из сегментов
+    timestamps = []
+    confidences = []
+    emotions = []
+    emotion_values = []  # числовые значения для графика
     
-    # График речевой активности
-    fig.add_trace(go.Scatter(
-        x=speech_data.get('timestamps', []),
-        y=speech_data.get('activity', []),
-        mode='lines',
-        name='Речевая активность',
-        line=dict(color='#00AA00', width=2),
-        fill='tonexty'
-    ))
+    # Маппинг эмоций на числовые значения для визуализации
+    emotion_map = {
+        'нейтральность': 0,
+        'счастье': 1,
+        'грусть': -1,
+        'злость': -2,
+        'страх': -1.5,
+        'удивление': 0.5,
+        'отвращение': -1.8,
+        'презрение': -1.7,
+        'спокойствие': 0.2,
+        'возбуждение': 1.5,
+        'фрустрация': -1.3,
+        'замешательство': -0.5,
+        'напряжение': -0.8,
+        'тревога': -1.2
+    }
     
-    # График эмоций речи
-    fig.add_trace(go.Scatter(
-        x=speech_data.get('timestamps', []),
-        y=speech_data.get('emotions', []),
-        mode='lines+markers',
-        name='Эмоции речи',
-        line=dict(color='#FF8800', width=2),
-        yaxis='y2'
-    ))
+    for seg in speech_emotions:
+        # Берем середину сегмента для точки на графике
+        start_time = seg.get('start_time', 0)
+        end_time = seg.get('end_time', start_time + 1)
+        mid_time = (start_time + end_time) / 2
+        
+        timestamps.append(mid_time)
+        confidences.append(seg.get('confidence', 0))
+        
+        emotion = seg.get('emotion', 'нейтральность')
+        emotions.append(emotion)
+        emotion_values.append(emotion_map.get(emotion.lower(), 0))
+    
+    # Создаем график с подграфиками
+    from plotly.subplots import make_subplots
+    
+    fig = make_subplots(
+        rows=2, cols=1,
+        subplot_titles=("Уверенность анализа", "Эмоциональный профиль"),
+        row_heights=[0.4, 0.6],
+        vertical_spacing=0.15
+    )
+    
+    # График уверенности
+    fig.add_trace(
+        go.Scatter(
+            x=timestamps,
+            y=confidences,
+            mode='lines+markers',
+            name='Уверенность',
+            line=dict(color='#4CAF50', width=2),
+            marker=dict(size=6),
+            text=[f"{c:.1%}" for c in confidences],
+            hovertemplate='<b>Время:</b> %{x:.1f}с<br><b>Уверенность:</b> %{text}<extra></extra>'
+        ),
+        row=1, col=1
+    )
+    
+    # График эмоций
+    fig.add_trace(
+        go.Scatter(
+            x=timestamps,
+            y=emotion_values,
+            mode='lines+markers',
+            name='Эмоции',
+            line=dict(color='#FF6B6B', width=2),
+            marker=dict(
+                size=8,
+                color=confidences,
+                colorscale='Viridis',
+                showscale=True,
+                colorbar=dict(
+                    title="Уверенность",
+                    x=1.1
+                )
+            ),
+            text=emotions,
+            hovertemplate='<b>Время:</b> %{x:.1f}с<br><b>Эмоция:</b> %{text}<extra></extra>'
+        ),
+        row=2, col=1
+    )
+    
+    # Добавляем горизонтальную линию нейтральности
+    fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5, row=2, col=1)
+    
+    # Обновляем layout
+    fig.update_xaxes(title_text="Время (секунды)", row=2, col=1)
+    fig.update_yaxes(title_text="Уверенность", range=[0, 1], row=1, col=1)
+    fig.update_yaxes(
+        title_text="Эмоциональная валентность",
+        range=[-2.5, 2],
+        ticktext=['Негативная', 'Нейтральная', 'Позитивная'],
+        tickvals=[-2, 0, 1.5],
+        row=2, col=1
+    )
     
     fig.update_layout(
-        title="Анализ речи",
-        xaxis_title="Время (секунды)",
-        yaxis=dict(title="Активность", side="left"),
-        yaxis2=dict(title="Эмоция", side="right", overlaying="y"),
-        height=400
+        title="Временной профиль эмоций в речи",
+        height=500,
+        showlegend=False,
+        hovermode='x unified'
     )
     
     return fig
@@ -843,14 +920,16 @@ if hasattr(st.session_state, 'start_analysis') and st.session_state.start_analys
 def calculate_emotion_metrics(results):
     """Calculate emotion metrics from pipeline results"""
     video_emotions = results.get('data', {}).get('video_emotions', [])
+    speech_emotions = results.get('data', {}).get('speech_emotions', [])
     
-    if not video_emotions:
+    if not video_emotions and not speech_emotions:
         return {
             'dominant_emotion': 'Не определено',
             'emotion_changes': 0,
             'stress_level': 0.0,
             'stability': 0.0,
-            'emotion_distribution': {}
+            'emotion_distribution': {},
+            'has_speech': False
         }
     
     # Count emotions
@@ -885,7 +964,9 @@ def calculate_emotion_metrics(results):
         'stress_level': stress_level,
         'stability': stability,
         'emotion_distribution': emotion_counts,
-        'total_frames': total_frames
+        'total_frames': total_frames,
+        'has_speech': len(speech_emotions) > 0,
+        'speech_segments': len(speech_emotions)
     }
 
 with tab2:
@@ -898,6 +979,12 @@ with tab2:
         
         # Calculate metrics from real data
         metrics = calculate_emotion_metrics(results)
+        
+        # Speech analysis status
+        if metrics['has_speech']:
+            st.success(f"✅ Речевой анализ: {metrics['speech_segments']} сегментов")
+        else:
+            st.warning("⚠️ Речевой анализ недоступен или не выполнен")
         
         # Основные метрики
         st.subheader("📈 Основные показатели")
@@ -975,7 +1062,9 @@ with tab3:
         # График эмоций в речи
         st.subheader("📈 Эмоции в речи")
         
-        speech_fig = create_speech_emotion_plot(results.get('speech', {}))
+        # Получаем реальные данные speech_emotions из pipeline
+        speech_emotions = results.get('data', {}).get('speech_emotions', [])
+        speech_fig = create_speech_emotion_plot(speech_emotions)
         st.plotly_chart(speech_fig, use_container_width=True)
         
         # Аудио плеер
@@ -984,11 +1073,21 @@ with tab3:
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            # В реальной реализации здесь будет настоящий аудио файл
+            # Реальные данные аудио
             st.write("**Аудио дорожка:**")
-            st.write("• Длительность: 2:00")
-            st.write("• Качество: 16 kHz")
-            st.write("• Каналы: Моно")
+            
+            # Получаем реальную длительность из метаданных
+            duration = results.get('metadata', {}).get('duration', 0)
+            duration_str = f"{int(duration//60)}:{int(duration%60):02d}" if duration else "Неизвестно"
+            
+            st.write(f"• **Длительность:** {duration_str}")
+            st.write("• **Качество:** 16 kHz")  
+            st.write("• **Каналы:** Моно")
+            
+            # Audio segments info
+            speech_emotions = results.get('data', {}).get('speech_emotions', [])
+            if speech_emotions:
+                st.write(f"• **Сегментов речи:** {len(speech_emotions)}")
             
             # Placeholder для аудио плеера
             st.info("🎵 Аудио плеер будет здесь в полной версии")
@@ -996,14 +1095,59 @@ with tab3:
         with col2:
             st.write("**Характеристики речи:**")
             
-            # Метрики речи
-            speech_metrics = {
-                "Средняя громкость": "65 dB",
-                "Темп речи": "140 слов/мин", 
-                "Количество пауз": "12",
-                "Средняя длина пауз": "1.8 сек",
-                "Эмоциональная окраска": "Умеренно напряженная"
-            }
+            # Реальные метрики речи из данных
+            speech_emotions = results.get('data', {}).get('speech_emotions', [])
+            transcript_segments = results.get('data', {}).get('transcript', [])
+            
+            if speech_emotions:
+                # Рассчитываем реальные метрики
+                total_duration = max([seg.get('end_time', seg.get('start_time', 0) + 1) 
+                                    for seg in speech_emotions], default=0)
+                
+                # Средняя уверенность эмоций
+                avg_confidence = sum(seg.get('confidence', 0) for seg in speech_emotions) / len(speech_emotions)
+                
+                # Доминирующая эмоция
+                emotions = [seg.get('emotion', 'нейтральность') for seg in speech_emotions]
+                dominant_emotion = max(set(emotions), key=emotions.count) if emotions else 'нейтральность'
+                
+                # Подсчет пауз (упрощенно - между сегментами)
+                pause_count = 0
+                total_pause_duration = 0
+                for i in range(1, len(speech_emotions)):
+                    prev_end = speech_emotions[i-1].get('end_time', 0)
+                    curr_start = speech_emotions[i].get('start_time', 0)
+                    if curr_start > prev_end + 0.5:  # Пауза больше 0.5 сек
+                        pause_count += 1
+                        total_pause_duration += curr_start - prev_end
+                
+                avg_pause = total_pause_duration / pause_count if pause_count > 0 else 0
+                
+                # Примерный темп речи
+                total_words = 0
+                for seg in transcript_segments:
+                    if hasattr(seg, 'text'):  # TranscriptionSegment object
+                        text = seg.text
+                    else:  # dictionary
+                        text = seg.get('text', '')
+                    
+                    if text:
+                        total_words += len(text.split())
+                
+                speech_rate = int(total_words * 60 / total_duration) if total_duration > 0 else 0
+                
+                speech_metrics = {
+                    "Длительность аудио": f"{total_duration:.1f} сек",
+                    "Темп речи": f"~{speech_rate} слов/мин" if speech_rate > 0 else "Не определен",
+                    "Количество пауз": str(pause_count),
+                    "Средняя длина пауз": f"{avg_pause:.1f} сек" if avg_pause > 0 else "Не определено",
+                    "Доминирующая эмоция": dominant_emotion.title(),
+                    "Средняя уверенность": f"{avg_confidence:.1%}"
+                }
+            else:
+                speech_metrics = {
+                    "Статус": "Данные анализа речи недоступны"
+                }
             
             for metric, value in speech_metrics.items():
                 st.write(f"• **{metric}:** {value}")
@@ -1011,31 +1155,80 @@ with tab3:
         # Таблица речевых сегментов
         st.subheader("📊 Сегменты речи")
         
-        if 'speech_segments' in results:
-            st.dataframe(
-                results['speech_segments'],
-                use_container_width=True,
-                height=300
-            )
+        if speech_emotions:
+            # Создаем DataFrame с реальными данными
+            import pandas as pd
+            
+            segments_data = []
+            for i, seg in enumerate(speech_emotions):
+                segments_data.append({
+                    "№": i + 1,
+                    "Начало (сек)": f"{seg.get('start_time', 0):.1f}",
+                    "Конец (сек)": f"{seg.get('end_time', 0):.1f}",
+                    "Длительность": f"{seg.get('end_time', 0) - seg.get('start_time', 0):.1f}с",
+                    "Эмоция": seg.get('emotion', 'нейтральность').title(),
+                    "Уверенность": f"{seg.get('confidence', 0):.1%}"
+                })
+            
+            df = pd.DataFrame(segments_data)
+            st.dataframe(df, use_container_width=True, height=300)
+            
+            # Статистика сегментов
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Всего сегментов", len(speech_emotions))
+            with col2:
+                avg_duration = sum(seg.get('end_time', 0) - seg.get('start_time', 0) 
+                                 for seg in speech_emotions) / len(speech_emotions)
+                st.metric("Средняя длительность", f"{avg_duration:.1f}с")
+            with col3:
+                avg_conf = sum(seg.get('confidence', 0) for seg in speech_emotions) / len(speech_emotions)
+                st.metric("Средняя уверенность", f"{avg_conf:.1%}")
+        else:
+            st.info("📊 Сегменты речи будут отображены после анализа")
         
-        # Статистика по говорящим
-        st.subheader("👥 Анализ по участникам")
+        # Статистика по эмоциям
+        st.subheader("👥 Анализ эмоций в речи")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**Следователь:**")
-            st.write("• Время говорения: 45 сек (37%)")
-            st.write("• Средняя эмоция: Нейтральность")
-            st.write("• Темп речи: 120 слов/мин")
-            st.write("• Количество вопросов: 8")
-        
-        with col2:
-            st.write("**Допрашиваемый:**")
-            st.write("• Время говорения: 75 сек (63%)")
-            st.write("• Средняя эмоция: Напряжение")
-            st.write("• Темп речи: 160 слов/мин")
-            st.write("• Количество пауз: 9")
+        if speech_emotions:
+            # Подсчет эмоций
+            emotion_counts = {}
+            total_duration = 0
+            
+            for seg in speech_emotions:
+                emotion = seg.get('emotion', 'нейтральность')
+                duration = seg.get('end_time', 0) - seg.get('start_time', 0)
+                
+                if emotion not in emotion_counts:
+                    emotion_counts[emotion] = {'count': 0, 'duration': 0}
+                
+                emotion_counts[emotion]['count'] += 1
+                emotion_counts[emotion]['duration'] += duration
+                total_duration += duration
+            
+            # Отображение статистики эмоций
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Распределение эмоций:**")
+                for emotion, stats in emotion_counts.items():
+                    percentage = (stats['duration'] / total_duration * 100) if total_duration > 0 else 0
+                    st.write(f"• **{emotion.title()}:** {stats['count']} сегментов ({percentage:.1f}%)")
+            
+            with col2:
+                st.write("**Временные характеристики:**")
+                st.write(f"• **Общее время речи:** {total_duration:.1f} сек")
+                st.write(f"• **Количество переходов:** {len(speech_emotions) - 1}")
+                
+                # Найти доминирующую эмоцию по времени
+                dominant_emotion = max(emotion_counts.keys(), 
+                                     key=lambda x: emotion_counts[x]['duration'])
+                dominant_time = emotion_counts[dominant_emotion]['duration']
+                dominant_pct = (dominant_time / total_duration * 100) if total_duration > 0 else 0
+                
+                st.write(f"• **Доминирующая эмоция:** {dominant_emotion.title()} ({dominant_pct:.1f}%)")
+        else:
+            st.info("📊 Анализ эмоций будет доступен после обработки")
 
 # ================================
 # TAB 4: ТРАНСКРИПЦИЯ
@@ -1130,7 +1323,19 @@ with tab4:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            transcript_text = "\n".join([f"{seg['speaker']}: {seg['text']}" for seg in results.get('transcript_segments', [])])
+            transcript_segments = results.get('data', {}).get('transcript', [])
+            # Handle both dict and TranscriptionSegment objects  
+            transcript_text_parts = []
+            for seg in transcript_segments:
+                if hasattr(seg, 'text'):
+                    text = seg.text
+                else:
+                    text = seg.get('text', '')
+                    
+                speaker = seg.get('speaker', 'Неизвестно') if isinstance(seg, dict) else 'Говорящий'
+                transcript_text_parts.append(f"{speaker}: {text}")
+            
+            transcript_text = "\n".join(transcript_text_parts)
             st.download_button(
                 "📄 Скачать TXT",
                 transcript_text,
@@ -1141,8 +1346,21 @@ with tab4:
         with col2:
             # Формат SRT для субтитров
             srt_content = ""
-            for i, seg in enumerate(results.get('transcript_segments', []), 1):
-                srt_content += f"{i}\n00:{seg['time']} --> 00:00:00\n{seg['speaker']}: {seg['text']}\n\n"
+            for i, seg in enumerate(transcript_segments, 1):
+                if hasattr(seg, 'start'):
+                    start_time = seg.start
+                    end_time = seg.end
+                    text = seg.text
+                else:
+                    start_time = seg.get('start', 0)
+                    end_time = seg.get('end', start_time + 1)
+                    text = seg.get('text', '')
+                    
+                # Format timestamps for SRT
+                start_formatted = f"{int(start_time//60):02d}:{int(start_time%60):02d}"
+                end_formatted = f"{int(end_time//60):02d}:{int(end_time%60):02d}"
+                
+                srt_content += f"{i}\n{start_formatted},000 --> {end_formatted},000\n{text}\n\n"
             
             st.download_button(
                 "🎬 Скачать SRT",
@@ -1153,7 +1371,20 @@ with tab4:
         
         with col3:
             # JSON с метаданными
-            json_data = json.dumps(results.get('transcript_segments', []), ensure_ascii=False, indent=2)
+            # Convert transcript segments to JSON-serializable format
+            transcript_json = []
+            for seg in transcript_segments:
+                if hasattr(seg, 'text'):
+                    transcript_json.append({
+                        'text': seg.text,
+                        'start': seg.start,
+                        'end': seg.end,
+                        'confidence': seg.confidence
+                    })
+                else:
+                    transcript_json.append(seg)
+            
+            json_data = json.dumps(transcript_json, ensure_ascii=False, indent=2)
             st.download_button(
                 "📋 Скачать JSON",
                 json_data,
@@ -1172,7 +1403,7 @@ with tab5:
         st.info("ℹ️ Критические моменты будут определены после анализа")
     else:
         results = st.session_state.analysis_results
-        critical_moments = results.get('critical_moments', [])
+        critical_moments = results.get('data', {}).get('critical_moments', [])
         
         if not critical_moments:
             st.success("✅ Критических моментов не обнаружено")
@@ -1471,7 +1702,7 @@ with tab6:
                     html_content += """
                         <h2>🧠 Психологический анализ</h2>
                         <div style="background: #f8f9fa; padding: 20px; border-radius: 5px;">
-                    """ + results.get('gpt_insights', 'Анализ недоступен').replace('\n', '<br>') + """
+                    """ + results.get('data', {}).get('insights', {}).get('analysis', 'Анализ недоступен').replace('\n', '<br>') + """
                         </div>
                     </body>
                     </html>

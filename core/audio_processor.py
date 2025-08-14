@@ -23,6 +23,12 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 try:
+    import whisper
+    LOCAL_WHISPER_AVAILABLE = True
+except ImportError:
+    LOCAL_WHISPER_AVAILABLE = False
+
+try:
     import librosa
     import librosa.display
     import numpy as np
@@ -137,6 +143,17 @@ class CompleteAudioProcessor:
         # Initialize OpenAI
         if OPENAI_AVAILABLE and self.openai_api_key:
             openai.api_key = self.openai_api_key
+        
+        # Initialize local Whisper model
+        self.local_whisper_model = None
+        if LOCAL_WHISPER_AVAILABLE:
+            try:
+                whisper_config = config.get('processing', {}).get('models', {}).get('whisper', {})
+                model_size = whisper_config.get('model_size', 'base')  # base, small, medium, large
+                self.local_whisper_model = whisper.load_model(model_size)
+                self.logger.info(f"Local Whisper model '{model_size}' loaded successfully")
+            except Exception as e:
+                self.logger.warning(f"Local Whisper initialization failed: {e}")
         
         # Initialize speech emotion analyzer
         try:
@@ -272,7 +289,7 @@ class CompleteAudioProcessor:
     
     def transcribe_with_timestamps(self, audio_path: str) -> List[TranscriptionSegment]:
         """
-        Transcribe audio with timestamps using Whisper API
+        Transcribe audio with timestamps using OpenAI Whisper API or local Whisper
         
         Args:
             audio_path: Path to audio file
@@ -280,12 +297,24 @@ class CompleteAudioProcessor:
         Returns:
             List of transcription segments with timestamps
         """
-        if not OPENAI_AVAILABLE or not self.openai_api_key:
-            raise RuntimeError("OpenAI API not available or API key not configured")
+        # Try OpenAI API first if available and configured
+        if OPENAI_AVAILABLE and self.openai_api_key:
+            try:
+                return self._transcribe_with_openai(audio_path)
+            except Exception as e:
+                self.logger.warning(f"OpenAI transcription failed: {e}. Falling back to local Whisper")
+        
+        # Fallback to local Whisper
+        if LOCAL_WHISPER_AVAILABLE and self.local_whisper_model:
+            return self._transcribe_with_local_whisper(audio_path)
+        
+        raise RuntimeError("No transcription method available. Need either OpenAI API key or local Whisper model")
+    
+    def _transcribe_with_openai(self, audio_path: str) -> List[TranscriptionSegment]:
+        """Transcribe using OpenAI API"""
+        self.logger.info(f"Starting OpenAI transcription of {audio_path}")
         
         try:
-            self.logger.info(f"Starting transcription of {audio_path}")
-            
             # Check file size (Whisper has 25MB limit)
             file_size = os.path.getsize(audio_path)
             if file_size > 25 * 1024 * 1024:  # 25MB
@@ -339,9 +368,64 @@ class CompleteAudioProcessor:
             
             self.logger.info(f"Transcription completed: {len(segments)} segments")
             return segments
-            
+                
         except Exception as e:
             self.logger.error(f"Transcription failed: {e}")
+            raise
+    
+    def _transcribe_with_local_whisper(self, audio_path: str) -> List[TranscriptionSegment]:
+        """Transcribe using local Whisper model"""
+        self.logger.info(f"Starting local Whisper transcription of {audio_path}")
+        
+        try:
+            # Transcribe with local Whisper
+            result = self.local_whisper_model.transcribe(
+                audio_path,
+                language=self.primary_language if self.primary_language != 'auto' else None,
+                verbose=False,
+                word_timestamps=True
+            )
+            
+            # Convert to TranscriptionSegment objects
+            segments = []
+            
+            if 'segments' in result:
+                for segment in result['segments']:
+                    # Extract word-level timestamps if available
+                    words = []
+                    if 'words' in segment and segment['words']:
+                        words = [
+                            {
+                                'word': word['word'],
+                                'start': word['start'],
+                                'end': word['end'],
+                                'probability': word.get('probability', 1.0)
+                            }
+                            for word in segment['words']
+                        ]
+                    
+                    segments.append(TranscriptionSegment(
+                        text=segment['text'].strip(),
+                        start=segment['start'],
+                        end=segment['end'],
+                        confidence=segment.get('avg_logprob', 0.0),
+                        words=words
+                    ))
+            else:
+                # Fallback: single segment
+                segments.append(TranscriptionSegment(
+                    text=result['text'],
+                    start=0.0,
+                    end=self._get_audio_duration(audio_path),
+                    confidence=0.0,
+                    words=[]
+                ))
+            
+            self.logger.info(f"Local Whisper transcription completed: {len(segments)} segments")
+            return segments
+            
+        except Exception as e:
+            self.logger.error(f"Local Whisper transcription failed: {e}")
             raise
     
     def _transcribe_large_file(self, audio_path: str, chunk_duration: float = 600) -> List[TranscriptionSegment]:

@@ -370,15 +370,35 @@ class AdvancedSpeechEmotionAnalyzer:
             # Classify emotion
             emotion_result = self.classify_emotion(features)
             
+            # Create segments from overall emotion (simple segmentation for now)
+            duration = len(audio) / sr
+            segment_duration = 30.0  # 30 second segments
+            segments = []
+            
+            for i in range(0, int(duration), int(segment_duration)):
+                start_time = i
+                end_time = min(i + segment_duration, duration)
+                
+                segments.append({
+                    'start_time': start_time,
+                    'end_time': end_time,
+                    'duration': end_time - start_time,
+                    'emotion': emotion_result['emotion'],
+                    'confidence': emotion_result['confidence'],
+                    'all_emotions': emotion_result['all_emotions']
+                })
+            
             # Compile results
             analysis_result = {
                 'audio_path': audio_path,
-                'duration': len(audio) / sr,
+                'duration': duration,
                 'sample_rate': sr,
                 'emotion': emotion_result['emotion'],
                 'confidence': emotion_result['confidence'],
                 'all_emotions': emotion_result['all_emotions'],
                 'method': emotion_result['method'],
+                'segments': segments,  # Add segments for pipeline compatibility
+                'total_segments': len(segments),
                 'features': {
                     'energy': features.get('energy', 0),
                     'pitch_mean': features.get('pitch_mean', 0),

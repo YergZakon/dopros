@@ -55,6 +55,7 @@ except ImportError:
 
 # Internal imports
 from utils.translation import EmotionTranslator
+from utils.json_utils import NumpyJSONEncoder, save_json_safe, clean_for_json
 
 
 class ComprehensiveReportGenerator:
@@ -576,9 +577,10 @@ class ComprehensiveReportGenerator:
                 'speech_emotion_changes': self._count_emotion_changes(speech_emotions)
             })
         
-        # Write JSON file
+        # Write JSON file with numpy support
+        json_data = clean_for_json(json_data)
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=2)
+            json.dump(json_data, f, cls=NumpyJSONEncoder, ensure_ascii=False, indent=2)
         
         return output_path
     
@@ -843,9 +845,10 @@ class ComprehensiveReportGenerator:
                 'speech_emotion_changes': self._count_emotion_changes(speech_emotions)
             })
         
-        # Write JSON file
+        # Write JSON file with numpy support
+        json_data = clean_for_json(json_data)
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=2)
+            json.dump(json_data, f, cls=NumpyJSONEncoder, ensure_ascii=False, indent=2)
         
         return output_path
     
@@ -1090,9 +1093,10 @@ class ComprehensiveReportGenerator:
                 'speech_emotion_changes': self._count_emotion_changes(speech_emotions)
             })
         
-        # Write JSON file
+        # Write JSON file with numpy support
+        json_data = clean_for_json(json_data)
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=2)
+            json.dump(json_data, f, cls=NumpyJSONEncoder, ensure_ascii=False, indent=2)
         
         return output_path
     
@@ -1333,9 +1337,10 @@ class ComprehensiveReportGenerator:
                 'speech_emotion_changes': self._count_emotion_changes(speech_emotions)
             })
         
-        # Write JSON file
+        # Write JSON file with numpy support
+        json_data = clean_for_json(json_data)
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=2)
+            json.dump(json_data, f, cls=NumpyJSONEncoder, ensure_ascii=False, indent=2)
         
         return output_path
     
@@ -1577,9 +1582,10 @@ class ComprehensiveReportGenerator:
                 'speech_emotion_changes': self._count_emotion_changes(speech_emotions)
             })
         
-        # Write JSON file
+        # Write JSON file with numpy support
+        json_data = clean_for_json(json_data)
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=2)
+            json.dump(json_data, f, cls=NumpyJSONEncoder, ensure_ascii=False, indent=2)
         
         return output_path
     
@@ -1845,9 +1851,10 @@ class ComprehensiveReportGenerator:
                 'speech_emotion_changes': self._count_emotion_changes(speech_emotions)
             })
         
-        # Write JSON file
+        # Write JSON file with numpy support
+        json_data = clean_for_json(json_data)
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=2)
+            json.dump(json_data, f, cls=NumpyJSONEncoder, ensure_ascii=False, indent=2)
         
         return output_path
     
@@ -2647,9 +2654,10 @@ class ComprehensiveReportGenerator:
                 'speech_emotion_changes': self._count_emotion_changes(speech_emotions)
             })
         
-        # Write JSON file
+        # Write JSON file with numpy support
+        json_data = clean_for_json(json_data)
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=2)
+            json.dump(json_data, f, cls=NumpyJSONEncoder, ensure_ascii=False, indent=2)
         
         return output_path    
     def generate_pdf_report(self, data: Dict[str, Any], visualizations: Dict[str, Any], 

@@ -6,6 +6,7 @@ import json
 import numpy as np
 from pathlib import Path
 from typing import Any, Dict, List, Union
+from dataclasses import is_dataclass, asdict
 
 class NumpyJSONEncoder(json.JSONEncoder):
     """
@@ -27,6 +28,8 @@ class NumpyJSONEncoder(json.JSONEncoder):
             return int(obj)
         elif isinstance(obj, Path):
             return str(obj)
+        elif is_dataclass(obj):
+            return asdict(obj)
         
         return super().default(obj)
 
@@ -73,6 +76,8 @@ def clean_for_json(obj: Any) -> Any:
         return bool(obj)
     elif isinstance(obj, Path):
         return str(obj)
+    elif is_dataclass(obj):
+        return clean_for_json(asdict(obj))
     elif hasattr(obj, 'item'):  # numpy scalar
         return obj.item()
     else:
