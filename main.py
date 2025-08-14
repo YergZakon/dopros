@@ -431,122 +431,186 @@ def get_demo_video_path():
 
 def generate_demo_results():
     """Генерация демонстрационных результатов"""
-    # Создаем синтетические данные для демо
-    timestamps = np.linspace(0, 120, 1200)  # 2 минуты видео
+    import random
     
-    # Синтетические эмоции лица
-    face_emotions = np.sin(timestamps * 0.1) * 0.5 + np.random.normal(0, 0.1, len(timestamps))
+    # Демо данные для переходов эмоций
+    demo_video_emotions = []
+    demo_speech_emotions = []
     
-    # Синтетические эмоции речи
-    speech_emotions = np.cos(timestamps * 0.08) * 0.3 + np.random.normal(0, 0.15, len(timestamps))
+    # Создаем реалистичные видео эмоции
+    emotions_list = ['нейтральность', 'спокойствие', 'грусть', 'злость', 'страх', 'счастье']
+    current_emotion = 'нейтральность'
     
-    # Речевая активность
-    speech_activity = np.where(np.sin(timestamps * 0.2) > 0, 1, 0) + np.random.normal(0, 0.1, len(timestamps))
+    for i in range(0, 120, 2):  # Каждые 2 секунды
+        # Иногда меняем эмоцию
+        if random.random() < 0.15:  # 15% шанс смены эмоции
+            current_emotion = random.choice(emotions_list)
+        
+        demo_video_emotions.append({
+            'timestamp': float(i),
+            'emotion': current_emotion,
+            'confidence': round(random.uniform(0.4, 0.9), 3)
+        })
+    
+    # Создаем речевые эмоции
+    speech_emotions_list = ['нейтральность', 'грусть', 'злость', 'тревога', 'напряжение']
+    
+    for i in range(0, 120, 15):  # Каждые 15 секунд
+        emotion = random.choice(speech_emotions_list)
+        demo_speech_emotions.append({
+            'start_time': float(i),
+            'end_time': float(i + 15),
+            'emotion': emotion,
+            'confidence': round(random.uniform(0.3, 0.7), 3)
+        })
+    
+    # Добавляем несколько критических переходов
+    demo_video_emotions.extend([
+        {'timestamp': 45.0, 'emotion': 'страх', 'confidence': 0.82},  # Критический переход
+        {'timestamp': 75.0, 'emotion': 'злость', 'confidence': 0.78},
+        {'timestamp': 95.0, 'emotion': 'нейтральность', 'confidence': 0.65}
+    ])
+    
+    # Сортируем по времени
+    demo_video_emotions.sort(key=lambda x: x['timestamp'])
+    
+    # Создаем анализ переходов для демо
+    try:
+        from emotion_transition_analyzer import EmotionTransitionDetector, TransitionMetricsCalculator
+        
+        detector = EmotionTransitionDetector()
+        metrics_calculator = TransitionMetricsCalculator()
+        
+        # Детекция переходов
+        video_transitions = detector.detect_transitions(demo_video_emotions, 'video')
+        speech_transitions = detector.detect_transitions(demo_speech_emotions, 'speech')
+        
+        # Расчет метрик
+        transition_metrics = metrics_calculator.calculate_comprehensive_metrics(video_transitions, speech_transitions)
+        
+        # Поиск критических паттернов
+        all_transitions = video_transitions + speech_transitions
+        critical_patterns = [t for t in all_transitions if t.is_critical]
+        
+        # Создаем результат переходов
+        demo_transitions = {
+            'video_transitions': [{
+                'timestamp': float(t.timestamp),
+                'from_emotion': t.from_emotion,
+                'to_emotion': t.to_emotion,
+                'duration': float(t.duration),
+                'transition_type': t.transition_type,
+                'severity': int(t.severity),
+                'confidence_before': float(t.confidence_before),
+                'confidence_after': float(t.confidence_after),
+                'modality': t.modality,
+                'transition_speed': t.transition_speed,
+                'is_critical': bool(t.is_critical)
+            } for t in video_transitions],
+            'speech_transitions': [{
+                'timestamp': float(t.timestamp),
+                'from_emotion': t.from_emotion,
+                'to_emotion': t.to_emotion,
+                'duration': float(t.duration),
+                'transition_type': t.transition_type,
+                'severity': int(t.severity),
+                'confidence_before': float(t.confidence_before),
+                'confidence_after': float(t.confidence_after),
+                'modality': t.modality,
+                'transition_speed': t.transition_speed,
+                'is_critical': bool(t.is_critical)
+            } for t in speech_transitions],
+            'transition_metrics': transition_metrics,
+            'critical_patterns': [{
+                'timestamp': float(t.timestamp),
+                'from_emotion': t.from_emotion,
+                'to_emotion': t.to_emotion,
+                'duration': float(t.duration),
+                'transition_type': t.transition_type,
+                'severity': int(t.severity),
+                'confidence_before': float(t.confidence_before),
+                'confidence_after': float(t.confidence_after),
+                'modality': t.modality,
+                'transition_speed': t.transition_speed,
+                'is_critical': bool(t.is_critical)
+            } for t in critical_patterns],
+            'summary': f"Обнаружено переходов: видео ({len(video_transitions)}), речь ({len(speech_transitions)}). Критических переходов: {len(critical_patterns)}.",
+            'total_transitions': len(all_transitions),
+            'critical_count': len(critical_patterns)
+        }
+        
+    except Exception as e:
+        # Fallback для демо переходов
+        demo_transitions = {
+            'video_transitions': [],
+            'speech_transitions': [],
+            'transition_metrics': {},
+            'critical_patterns': [],
+            'summary': f'Демо анализ переходов: {str(e)}',
+            'total_transitions': 0,
+            'critical_count': 0
+        }
     
     return {
-        'emotions': {
-            'video_emotions': {
-                'timestamps': timestamps.tolist(),
-                'values': face_emotions.tolist()
-            },
-            'audio_emotions': {
-                'timestamps': timestamps.tolist(),
-                'values': speech_emotions.tolist()
-            }
+        'session_id': 'demo_session',
+        'status': 'completed',
+        'video_path': 'demo/sample_interrogation.mp4',
+        'generated_at': datetime.now().isoformat(),
+        'stages_completed': 13,
+        'total_stages': 13,
+        'success_rate': 1.0,
+        'data': {
+            'video_emotions': demo_video_emotions,
+            'speech_emotions': demo_speech_emotions,
+            'transcript': [],
+            'analyze_transitions': demo_transitions,
+            'critical_moments': [],
+            'insights': {},
+            'reports': {}
         },
-        'speech': {
-            'timestamps': timestamps.tolist(),
-            'activity': np.clip(speech_activity, 0, 1).tolist(),
-            'emotions': speech_emotions.tolist()
-        },
-        'critical_moments': [
-            {
-                'time': '00:15',
-                'timestamp': 15,
-                'type': 'Резкое изменение эмоции',
-                'description': 'Переход от нейтрального к раздраженному состоянию',
-                'severity': 7,
-                'face_emotion': 'Раздражение',
-                'speech_emotion': 'Нейтральность',
-                'transcript': 'Я уже объяснял это несколько раз...',
-                'frame': None
-            },
-            {
-                'time': '00:45',
-                'timestamp': 45,
-                'type': 'Несоответствие модальностей',
-                'description': 'Лицевые эмоции не соответствуют тону речи',
-                'severity': 6,
-                'face_emotion': 'Печаль',
-                'speech_emotion': 'Радость',
-                'transcript': 'Да, конечно, я был там.',
-                'frame': None
-            },
-            {
-                'time': '01:20',
-                'timestamp': 80,
-                'type': 'Длительная пауза',
-                'description': 'Необычно долгая пауза перед ответом',
-                'severity': 5,
-                'face_emotion': 'Напряжение',
-                'speech_emotion': 'Неопределенность',
-                'transcript': '[пауза 4.2 сек] Ну... это сложный вопрос.',
-                'frame': None
-            }
-        ],
-        'transcript_segments': [
-            {
-                'speaker': 'Следователь',
-                'text': 'Где вы находились 15 числа вечером?',
-                'time': '00:05',
-                'critical': False
-            },
-            {
-                'speaker': 'Свидетель',
-                'text': 'Я уже объяснял это несколько раз...',
-                'time': '00:15',
-                'critical': True
-            },
-            {
-                'speaker': 'Свидетель',
-                'text': 'Да, конечно, я был там.',
-                'time': '00:45',
-                'critical': True
-            }
-        ],
-        'dominant_emotion': 'Напряжение',
-        'emotion_changes': 23,
-        'stress_level': 0.68,
-        'stability': 0.42,
-        'processing_time': 45.2,
-        'gpt_insights': """
-        **Психологический анализ допроса:**
-        
-        1. **Эмоциональная нестабильность**: Обнаружена высокая изменчивость эмоциональных состояний (42% стабильности), что может указывать на внутренний конфликт или стресс.
-        
-        2. **Повышенный уровень стресса**: Зафиксирован стресс-уровень 68%, что значительно выше нормы для обычной беседы.
-        
-        3. **Несоответствия между модальностями**: Выявлены моменты, когда эмоции лица не соответствуют эмоциям в речи, что может быть признаком контролируемого поведения.
-        
-        4. **Защитные реакции**: Фразы типа "я уже объяснял" могут указывать на желание избежать углубленного обсуждения темы.
-        
-        **Рекомендации для ведения допроса:**
-        - Обратить внимание на моменты несоответствия эмоций
-        - Детализировать вопросы в моменты повышенного стресса  
-        - Проверить показания по эпизодам с длительными паузами
-        """,
-        'emotion_matrix': [[0.3, -0.2, 0.1, 0.2, 0.1], [-0.1, 0.2, 0.3, -0.2, 0.0]],
-        'audio_path': 'demo/sample_audio.wav',
-        'speech_segments': pd.DataFrame({
-            'Время': ['00:05', '00:15', '00:25', '00:45', '01:20'],
-            'Говорящий': ['Следователь', 'Свидетель', 'Следователь', 'Свидетель', 'Свидетель'],
-            'Эмоция': ['Нейтральность', 'Раздражение', 'Настойчивость', 'Радость', 'Неопределенность'],
-            'Уверенность': [0.85, 0.92, 0.78, 0.65, 0.43]
-        })
+        'metadata': {'duration': 120, 'fps': 30, 'resolution': [1920, 1080]},
+        'errors': [],
+        'warnings': [],
+        'metrics': {}
     }
 
+def format_time(seconds):
+    """Форматирование времени в ЧЧ:ММ:СС"""
+    return str(timedelta(seconds=int(seconds)))[2:]
+
+def save_uploaded_file(uploaded_file):
+    """Сохранение загруженного файла"""
+    try:
+        # Создаем временную директорию
+        temp_dir = Path("temp_uploads")
+        temp_dir.mkdir(exist_ok=True)
+        
+        # Генерируем уникальное имя файла
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = temp_dir / f"{timestamp}_{uploaded_file.name}"
+        
+        # Сохраняем файл
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        return str(file_path)
+    
+    except Exception as e:
+        st.error(f"Ошибка сохранения файла: {e}")
+        return None
+
+def get_demo_video_path():
+    """Получение пути к демо видео"""
+    demo_path = Path("demo/sample_interrogation.mp4")
+    if demo_path.exists():
+        return str(demo_path)
+    else:
+        # Создаем фиктивный путь для демо
+        return "demo/sample_interrogation.mp4"
+
+
 # ================================
-# ИНИЦИАЛИЗАЦИЯ
+# ИНИЦИАЛИЗАЦИЯ И НАСТРОЙКИ
 # ================================
 
 init_session_state()
@@ -565,7 +629,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================================
-# 4. БОКОВАЯ ПАНЕЛЬ С НАСТРОЙКАМИ
+# БОКОВАЯ ПАНЕЛЬ С НАСТРОЙКАМИ
 # ================================
 
 with st.sidebar:
@@ -1031,6 +1095,101 @@ with tab2:
         
         fig = create_emotion_timeline(results)
         st.plotly_chart(fig, use_container_width=True)
+        
+        # Анализ переходов эмоций
+        st.subheader("🔄 Анализ переходов эмоций")
+        
+        # Получаем данные переходов из results
+        transitions_data = results.get('data', {}).get('analyze_transitions', {})
+        
+        if transitions_data and transitions_data.get('total_transitions', 0) > 0:
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                total_transitions = transitions_data.get('total_transitions', 0)
+                st.markdown(f"""
+                <div class="metric-container">
+                    <h3>🔄 Всего переходов</h3>
+                    <h2>{total_transitions}</h2>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                critical_count = transitions_data.get('critical_count', 0)
+                color = '#FF4444' if critical_count > 3 else '#FFA500' if critical_count > 0 else '#00AA00'
+                st.markdown(f"""
+                <div class="metric-container">
+                    <h3>⚠️ Критических</h3>
+                    <h2 style="color: {color}">{critical_count}</h2>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col3:
+                video_transitions = len(transitions_data.get('video_transitions', []))
+                st.markdown(f"""
+                <div class="metric-container">
+                    <h3>🎥 Видео</h3>
+                    <h2>{video_transitions}</h2>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col4:
+                speech_transitions = len(transitions_data.get('speech_transitions', []))
+                st.markdown(f"""
+                <div class="metric-container">
+                    <h3>🎙️ Речь</h3>
+                    <h2>{speech_transitions}</h2>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Резюме переходов
+            summary = transitions_data.get('summary', 'Анализ переходов не доступен')
+            st.info(f"📋 **Резюме:** {summary}")
+            
+            # Критические паттерны
+            critical_patterns = transitions_data.get('critical_patterns', [])
+            if critical_patterns:
+                st.subheader("⚠️ Критические паттерны")
+                
+                for i, pattern in enumerate(critical_patterns[:5]):  # Показываем до 5
+                    with st.expander(f"Паттерн {i+1}: {pattern.get('from_emotion', '?')} → {pattern.get('to_emotion', '?')}"):
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.write(f"**Время:** {pattern.get('timestamp', 0):.1f}с")
+                            st.write(f"**Модальность:** {pattern.get('modality', 'неизвестно')}")
+                        
+                        with col2:
+                            st.write(f"**Тип:** {pattern.get('transition_type', 'неопределенный')}")
+                            st.write(f"**Критичность:** {pattern.get('severity', 0)}/10")
+                        
+                        with col3:
+                            st.write(f"**Скорость:** {pattern.get('transition_speed', 'неопределенная')}")
+                            st.write(f"**Длительность:** {pattern.get('duration', 0):.2f}с")
+            
+            # Метрики переходов
+            transition_metrics = transitions_data.get('transition_metrics', {})
+            if transition_metrics:
+                st.subheader("📊 Детальные метрики")
+                
+                # Индекс нестабильности
+                instability_index = transition_metrics.get('instability_index', {})
+                if instability_index:
+                    combined_instability = instability_index.get('combined_instability', 0)
+                    interpretation = instability_index.get('interpretation', 'неопределено')
+                    
+                    instability_color = '#FF4444' if combined_instability > 0.7 else '#FFA500' if combined_instability > 0.4 else '#00AA00'
+                    
+                    st.markdown(f"""
+                    <div style="padding: 1rem; border-radius: 8px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); margin: 1rem 0;">
+                        <h4>🌡️ Индекс эмоциональной нестабильности</h4>
+                        <h2 style="color: {instability_color}; margin: 0.5rem 0;">{combined_instability:.3f}</h2>
+                        <p style="margin: 0; font-style: italic;">{interpretation}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        else:
+            st.warning("⚠️ Анализ переходов эмоций недоступен или не содержит данных")
         
         # Тепловая карта эмоций
         st.subheader("🗺️ Тепловая карта эмоций")

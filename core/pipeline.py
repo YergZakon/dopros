@@ -37,6 +37,7 @@ from core.audio_processor import CompleteAudioProcessor
 from models.speech_analyzer import AdvancedSpeechEmotionAnalyzer
 from core.report_generator import ComprehensiveReportGenerator
 from integrations.openai_client import OpenAIIntegration
+from emotion_transition_analyzer import EmotionTransitionDetector, TransitionMetricsCalculator
 
 
 class PipelineError(Exception):
@@ -103,6 +104,7 @@ class MasterPipeline:
             ('transcribe_audio', self._transcribe_audio),
             ('analyze_speech', self._analyze_speech),
             ('synchronize_data', self._synchronize_data),
+            ('analyze_transitions', self._analyze_emotion_transitions),
             ('detect_critical', self._detect_critical_moments),
             ('generate_insights', self._generate_insights),
             ('create_reports', self._create_reports)
@@ -123,6 +125,10 @@ class MasterPipeline:
             'detect_critical': self._fallback_critical_moments,
             'generate_insights': self._fallback_insights
         }
+        
+        # Initialize transition analysis components
+        self.transition_detector = EmotionTransitionDetector(self.config.get('transitions', {}))
+        self.metrics_calculator = TransitionMetricsCalculator()
         
         # Metrics tracking
         self.metrics = {
@@ -963,6 +969,136 @@ class MasterPipeline:
             self.logger.error(f"Data synchronization failed: {e}")
             raise PipelineError(f"Critical synchronization failed: {e}")
     
+    def _analyze_emotion_transitions(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Анализ переходов эмоций между видео и речью"""
+        self.logger.info("Starting emotion transition analysis...")
+        
+        try:
+            # Получаем синхронизированные данные
+            synchronized_data = results.get('synchronize_data', {})
+            video_emotions = synchronized_data.get('video_emotions', [])
+            speech_emotions = synchronized_data.get('speech_emotions', [])
+            
+            if not video_emotions and not speech_emotions:
+                self.logger.warning("No emotion data available for transition analysis")
+                return {
+                    'video_transitions': [],
+                    'speech_transitions': [],
+                    'transition_metrics': {},
+                    'critical_patterns': [],
+                    'summary': 'Недостаточно данных для анализа переходов'
+                }
+            
+            # Детекция переходов для видео эмоций
+            video_transitions = []
+            if video_emotions:
+                video_transitions = self.transition_detector.detect_transitions(
+                    video_emotions, modality='video'
+                )
+                self.logger.info(f"Detected {len(video_transitions)} video transitions")
+            
+            # Детекция переходов для речевых эмоций  
+            speech_transitions = []
+            if speech_emotions:
+                speech_transitions = self.transition_detector.detect_transitions(
+                    speech_emotions, modality='speech'
+                )
+                self.logger.info(f"Detected {len(speech_transitions)} speech transitions")
+            
+            # Расчет комплексных метрик
+            transition_metrics = {}
+            if video_transitions or speech_transitions:
+                transition_metrics = self.metrics_calculator.calculate_comprehensive_metrics(
+                    video_transitions, speech_transitions
+                )
+            
+            # Поиск критических паттернов
+            critical_patterns = []
+            all_transitions = video_transitions + speech_transitions
+            critical_patterns = [
+                t for t in all_transitions if t.is_critical
+            ]
+            
+            # Создание резюме
+            summary = self._create_transition_summary(
+                video_transitions, speech_transitions, critical_patterns, transition_metrics
+            )
+            
+            transition_analysis = {
+                'video_transitions': [self._transition_to_dict(t) for t in video_transitions],
+                'speech_transitions': [self._transition_to_dict(t) for t in speech_transitions],
+                'transition_metrics': transition_metrics,
+                'critical_patterns': [self._transition_to_dict(t) for t in critical_patterns],
+                'summary': summary,
+                'total_transitions': len(all_transitions),
+                'critical_count': len(critical_patterns)
+            }
+            
+            self.logger.info(f"Transition analysis completed: {len(all_transitions)} total transitions, {len(critical_patterns)} critical")
+            
+            return transition_analysis
+            
+        except Exception as e:
+            self.logger.error(f"Emotion transition analysis failed: {e}")
+            return {
+                'error': str(e),
+                'video_transitions': [],
+                'speech_transitions': [],
+                'transition_metrics': {},
+                'critical_patterns': [],
+                'summary': f'Ошибка анализа переходов: {str(e)}'
+            }
+    
+    def _transition_to_dict(self, transition) -> Dict[str, Any]:
+        """Преобразование EmotionTransition в словарь для JSON сериализации"""
+        return {
+            'timestamp': float(transition.timestamp),
+            'from_emotion': transition.from_emotion,
+            'to_emotion': transition.to_emotion,
+            'duration': float(transition.duration),
+            'transition_type': transition.transition_type,
+            'severity': int(transition.severity),
+            'confidence_before': float(transition.confidence_before),
+            'confidence_after': float(transition.confidence_after),
+            'modality': transition.modality,
+            'transition_speed': transition.transition_speed,
+            'is_critical': bool(transition.is_critical)
+        }
+    
+    def _create_transition_summary(self, video_transitions, speech_transitions, critical_patterns, metrics) -> str:
+        """Создание текстового резюме анализа переходов"""
+        total_video = len(video_transitions)
+        total_speech = len(speech_transitions)
+        total_critical = len(critical_patterns)
+        
+        if total_video == 0 and total_speech == 0:
+            return "Переходы эмоций не обнаружены"
+        
+        # Основная статистика
+        summary_parts = []
+        summary_parts.append(f"Обнаружено переходов: видео ({total_video}), речь ({total_speech})")
+        
+        if total_critical > 0:
+            summary_parts.append(f"Критических переходов: {total_critical}")
+            
+            # Анализ критических паттернов
+            critical_types = {}
+            for pattern in critical_patterns:
+                pattern_type = pattern.transition_type if hasattr(pattern, 'transition_type') else 'неопределенный'
+                critical_types[pattern_type] = critical_types.get(pattern_type, 0) + 1
+            
+            if critical_types:
+                top_critical = max(critical_types.items(), key=lambda x: x[1])
+                summary_parts.append(f"Доминирующий критический паттерн: {top_critical[0]} ({top_critical[1]}x)")
+        
+        # Индекс нестабильности
+        if metrics and 'instability_index' in metrics:
+            instability = metrics['instability_index'].get('combined_instability', 0)
+            interpretation = metrics['instability_index'].get('interpretation', 'неопределено')
+            summary_parts.append(f"Эмоциональная нестабильность: {instability:.2f} ({interpretation})")
+        
+        return ". ".join(summary_parts) + "."
+    
     def _calculate_emotion_correlations(self, video_emotions: List[Dict], speech_emotions: List[Dict]) -> Dict[str, Any]:
         """Calculate correlations between video and speech emotions"""
         try:
@@ -1746,6 +1882,7 @@ class MasterPipeline:
                 "video_emotions": results.get("analyze_emotions", {}).get("emotion_results", []),
                 "speech_emotions": results.get("analyze_speech", {}).get("segments", []), 
                 "transcript": results.get("transcribe_audio", {}).get("segments", []),
+                "analyze_transitions": results.get("analyze_transitions", {}),
                 "critical_moments": results.get("detect_critical", {}).get("critical_moments", []),
                 "insights": results.get("generate_insights", {}).get("insights", {}),
                 "reports": results.get("create_reports", {})

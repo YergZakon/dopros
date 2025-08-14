@@ -45,8 +45,8 @@ class YOLO11Manager:
         # Model paths
         self.model_paths = yolo_config.get('models', {})
         self.detection_model_path = self.model_paths.get('detection', 'yolo11n.pt')
-        self.face_model_path = self.model_paths.get('face', 'yolo11n-face.pt')
-        self.emotion_model_path = self.model_paths.get('emotion', 'yolo11n-emotion.pt')
+        self.face_model_path = self.model_paths.get('face', 'yolo11n.pt')
+        self.emotion_model_path = self.model_paths.get('emotion', 'yolo11n.pt')
         
         # Storage paths
         storage_config = config.get('storage', {})
@@ -95,9 +95,9 @@ class YOLO11Manager:
             Loaded YOLO model
         """
         try:
-            # Check if model exists locally
-            if not os.path.exists(model_path) and not model_path.startswith('yolo11'):
-                self.logger.warning(f"Model file not found: {model_path}")
+            # Check if model exists locally or force fallback for face models
+            if (not os.path.exists(model_path) and not model_path.startswith('yolo11')) or 'face.pt' in model_path:
+                self.logger.warning(f"Model file not found or fallback needed: {model_path}")
                 # Fallback to default model names for auto-download
                 if model_type == 'detection':
                     model_path = 'yolo11n.pt'

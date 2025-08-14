@@ -87,6 +87,33 @@ analysis:
   mismatch_threshold: 0.3
   speech_pause_threshold: 2.0
   time_resolution: 0.1
+  
+transitions:
+  # Настройки детекции переходов эмоций
+  min_transition_duration: 0.3  # минимальная длительность перехода в секундах
+  confidence_threshold: 0.3     # минимальная уверенность для учета эмоции
+  min_confidence_diff: 0.1      # минимальная разница в уверенности
+  
+  # Критические паттерны
+  enable_critical_detection: true
+  critical_severity_threshold: 7  # минимальная критичность для отметки как критический
+  
+  # Психологические индикаторы
+  psychological_analysis:
+    enable_deception_detection: true    # детекция признаков лжи
+    enable_stress_analysis: true        # анализ уровня стресса
+    enable_control_assessment: true     # оценка эмоционального контроля
+    enable_instability_tracking: true   # отслеживание эмоциональной нестабильности
+    
+  # Корреляционный анализ
+  correlation:
+    max_time_distance: 5.0  # максимальная разница во времени для сопоставления (сек)
+    enable_cross_modal: true # включить анализ корреляций между видео и речью
+    
+  # Временной анализ
+  temporal:
+    time_window_size: 30.0  # размер окна для анализа активности (сек)
+    enable_peak_detection: true  # поиск пиков эмоциональной активности
     
   report:
     formats: ["csv", "json", "html", "pdf"]
